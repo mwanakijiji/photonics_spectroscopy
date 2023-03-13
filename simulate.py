@@ -1,6 +1,7 @@
 # code for simulation of lenslet-based IFS spectra
 #
 # Michael Fitzgerald (mpfitz@ucla.edu)
+# [ email from MF: There is the “extract” method which has the implementation. ]
 
 import os, pickle
 import numpy as n
@@ -477,6 +478,7 @@ class Extractor(_ExtractorBase):
         # get least-squares solution
         from scipy.sparse.linalg import lsmr
         _log.info('running least-squares solver ...')
+        # solve (ATWA)S = ATWx for S, where S is science signal and x is image
         spec_lw, istop, itn, normr, normar, norma, conda, normx = \
           lsmr(ATWA, ATWx,
                damp=damp,
