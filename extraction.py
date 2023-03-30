@@ -1,47 +1,126 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# Tests extract step itself, given known matrices
+
+import numpy as np
+import pickle
+import matplotlib.pyplot as plt
+from scipy.sparse.linalg import lsmr
+import time
+from astropy.io import fits
+
+from scipy.sparse import diags
+
+def extract():
+
+     # no noise, small footprint:
+     '''
+     file_name_empirical = "stellar_empirical_no_noise_small_footprint.pkl"
+     file_name = "white_light_no_noise_small_footprint.pkl"
+     '''
+     # no noise, large footprint:
+     file_name_empirical = "stellar_empirical_no_noise.pkl"
+     file_name = "white_light_no_noise.pkl"
+
+     # retrieve instrument response matrix
+     open_file = open(file_name, "rb")
+
+     # response matrix, test commands, 2D detector test response
+     A_mat, test_cmds, test_response = pickle.load(open_file)
+     open_file.close()
+
+     # kludge: transpose
+     A_mat = A_mat.T
 
 
-def extract(self, im, variance=None, thresh=3e-4):
-        "invert linear response to recover cube"
-        _log.debug('extract called')
-        # compute weight array
-        from scipy.sparse import diags
-        if variance is None:
-            w = n.ones(self.sim.ndetpix, dtype=n.float) # uniform weights
-        else:
-            w = 1./variance.flatten()
-        if self.badpix is not None:
-            wb = n.nonzero(self.badpix.flat)[0]
-            w[wb] = 0.
-        if n.any(n.isnan(im)):
-            wb = n.nonzero(n.isnan(im.flat))[0]
-            im[n.isnan(im)] = 0. # TEMP
-            w[wb] = 0.
-        W = diags(w, 0)
+     # retrieve 'empirical data'
+     open_file = open(file_name_empirical, "rb")
+     empirical_2d_array = pickle.load(open_file)[0]
+     open_file.close()
 
-        # compute matrices/vectors
-        ATW = self.A.T.dot(W) # A^T . W
-        self.report(ATW, 'ATW')
-        ATWA = ATW.dot(self.A) # A^T . W . A
-        self.report(ATWA, 'ATWA')
-        ATWx = ATW.dot(im.flat)
+     # add noise
+     array_size = np.shape(np.random.normal(size=(np.shape(empirical_2d_array)[0],np.shape(empirical_2d_array)[1])))
+     empirical_2d_array += (np.max(empirical_2d_array)/20.)*np.random.normal(size=array_size)
 
-        # compute damping coefficient
-        ATWAdiag = ATWA.diagonal()
-        damp = thresh * ATWAdiag.max()
+     '''
+     # write to FITS to check
 
-        # get least-squares solution
-        from scipy.sparse.linalg import lsmr
-        _log.info('running least-squares solver ...')
-        # solve (ATWA)S = ATWx for S, where S is science signal and x is image
-        spec_lw, istop, itn, normr, normar, norma, conda, normx = \
-          lsmr(ATWA, ATWx,
-               damp=damp,
-               )
-        _log.info('done.')
+     hdu = fits.PrimaryHDU(empirical_2d_array)
+     hdul = fits.HDUList([hdu])
+     hdul.writeto('junk_empirical_2d_array.fits')
 
-              
-        # reformat structure into datacube
-        spectra = n.empty((self.sim.nll, self.nlam), dtype=n.float)
-        spectra[:] = n.nan
-        spectra[self.wlw] = spec_lw
-        return spectra
+     hdu = fits.PrimaryHDU(test_response)
+     hdul = fits.HDUList([hdu])
+     hdul.writeto('junk_test_response.fits')
+     '''
+
+     '''
+     plt.imshow(test_cmds)
+     plt.show()
+     '''
+
+     # define variance
+     #detector_variance = 0.1*np.random.normal(loc=0,size=(np.shape(empirical_2d_array)[0],np.shape(empirical_2d_array)[1]))
+     detector_variance = 0.1*np.ones((np.shape(empirical_2d_array)[0],np.shape(empirical_2d_array)[1]))
+
+     # make weight matrix
+     w = 1./detector_variance.flatten()
+     W = diags(w, 0)
+
+     # define what we're decomposing
+     detector_measured = empirical_2d_array
+
+     # ---------- decompose and time it
+
+     time_00 = time.time()
+
+     time_0 = time.time()
+
+     A = A_mat
+
+     # compute matrices/vectors
+     ATW = A.T@W # A^T . W
+
+     time_1 = time.time()
+     print("Time:",time_1-time_0)
+     # -------------------------------------
+     time_0 = time.time()
+
+     #self.report(ATW, 'ATW')
+     #ATWA = ATW.dot(A) # A^T . W . A
+     ATWA = ATW@A # A^T . W . A
+
+     time_1 = time.time()
+     print("Time:",time_1-time_0)
+     # -------------------------------------
+     time_0 = time.time()
+
+     #self.report(ATWA, 'ATWA')
+     ATWx = ATW@detector_measured.flat
+
+     time_1 = time.time()
+     print("Time:",time_1-time_0)
+
+     time_0 = time.time()
+
+     thresh=3e-4
+
+     # compute damping coefficient
+     ATWAdiag = ATWA.diagonal()
+     damp = thresh * ATWAdiag.max()
+
+     time_1 = time.time()
+     print("Time:",time_1-time_0)
+
+     spec_lw, istop, itn, normr, normar, norma, conda, normx = \
+               lsmr(ATWA, ATWx,
+                    damp=damp,
+                    )
+
+     time_11 = time.time()
+
+     print("Total time:", time_11-time_00)
+     # ---------- 
+
+     return spec_lw
