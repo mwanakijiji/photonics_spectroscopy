@@ -7,6 +7,8 @@ from simulator.make_detector_readout import fake_readout
 
 readout = fake_readout(x_size=1000, y_size=100)
 
+
+
 plt.imshow(readout)
 plt.show()
 
