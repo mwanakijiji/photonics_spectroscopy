@@ -6,7 +6,7 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 from . import *
 
-def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=100):
+def fake_white_scan(file_name_responses_write, angle=0, height=0.5, N_cmd = 100, x_size=1000, y_size=100):
 
     # just for initializing a DataFrame column
     stem_spec = '/Users/bandari/Documents/git.repos/rrlfe/src/model_spectra/rrmods_all/original_ascii_files'
@@ -29,6 +29,9 @@ def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=
     M_basis_set_cmds = N_cmd
     poke_matrix = np.zeros((N_pixels,M_basis_set_cmds))
 
+    # get a discrete list of wavelengths to which each snapshot corresponds
+    wavel_array = np.zeros((N_cmd))
+
 
     for t in range(0,N_cmd):
         
@@ -43,7 +46,7 @@ def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=
     
         #import ipdb; ipdb.set_trace()
         # a white light spectrum in y-middle
-        spec_perfect[int(0.5*y_detec_size),t*step_wavel:(t+1)*step_wavel] = norm_val*np.ones(len(spec_fake['flux_norm']))[t*step_wavel:(t+1)*step_wavel]
+        spec_perfect[int(height*y_detec_size),t*step_wavel:(t+1)*step_wavel] = norm_val*np.ones(len(spec_fake['flux_norm']))[t*step_wavel:(t+1)*step_wavel]
 
         '''
         blank_2d = np.zeros((y_detec_size,x_detec_size)) #np.shape(flux_2d_perfect)
@@ -57,7 +60,7 @@ def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=
         
         spec_convolved = gaussian_filter(spec_perfect, sigma=5)
 
-        test_rotate = scipy.ndimage.rotate(spec_convolved, angle=1, reshape=False)
+        test_rotate = scipy.ndimage.rotate(spec_convolved, angle=angle, reshape=False)
 
         '''
         plt.imshow(test_rotate)
@@ -93,6 +96,9 @@ def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=
         # add frame to cube
         cube_w_step_impulse[t,:,:] = array_2d_w_spec
 
+        # add wavelength
+        wavel_array[t] = spec_fake['wavel'].loc[t*step_wavel]
+
     # pseudoinverse: the instrument response matrix
     response_matrix = np.linalg.pinv(poke_matrix)
 
@@ -103,12 +109,22 @@ def fake_white_scan(file_name_responses_write, N_cmd = 100, x_size=1000, y_size=
     hdul.writeto('junk_poke_white_light_no_noise_small_footprint.fits', overwrite=True)
     '''
 
+    '''
+    # write to FITS to check
+    file_name = 'junk_white_light.fits'
+    hdu = fits.PrimaryHDU(array_scan)
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(file_name, overwrite=True)
+    print("Wrote",file_name)
+    #print(wavel_array)
+    '''
+
     test_response = cube_w_step_impulse
     test_cmds = cube_w_commands
     response_matrix = response_matrix
 
     # pickle
-    data_list = [response_matrix, test_cmds, test_response]
+    data_list = [response_matrix, test_cmds, test_response, wavel_array]
     file_name = file_name_responses_write
     open_file = open(file_name, "wb")
     pickle.dump(data_list, open_file)
