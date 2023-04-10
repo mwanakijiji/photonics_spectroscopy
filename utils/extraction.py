@@ -11,32 +11,32 @@ import time
 from astropy.io import fits
 from scipy.sparse import diags
 
-def extract(file_name_response_basis_read, file_name_empirical_read):
+def extract(file_name_response_basis_read, file_name_A_matrix_read, file_name_empirical_read):
 
-     # retrieve instrument response matrix
+     # retrieve instrument response basis
      open_file = open(file_name_response_basis_read, "rb")
-
      # response matrix, test commands, 2D detector test response
-     A_mat, test_cmds, test_response = pickle.load(open_file)
+     poke_mat, test_cmds, test_response, wavel_response = pickle.load(open_file)
      open_file.close()
 
-     import ipdb; ipdb.set_trace()
+     # retrieve response matrix itself
+     open_file = open(file_name_A_matrix_read, "rb")
+     response_matrix_list = pickle.load(open_file)
+     A_mat = response_matrix_list[0]
+     open_file.close()
 
      # kludge: transpose
      A_mat = A_mat.T
-
 
      # retrieve 'empirical data'
      open_file = open(file_name_empirical_read, "rb")
      empirical_2d_array = pickle.load(open_file)[0]
      open_file.close()
-     import ipdb; ipdb.set_trace()
 
      # add noise
      array_size = np.shape(np.random.normal(size=(np.shape(empirical_2d_array)[0],np.shape(empirical_2d_array)[1])))
      empirical_2d_array += (np.max(empirical_2d_array)/20.)*np.random.normal(size=array_size)
 
-     import ipdb; ipdb.set_trace()
      '''
      # write to FITS to check
 
@@ -61,19 +61,16 @@ def extract(file_name_response_basis_read, file_name_empirical_read):
      # make weight matrix
      w = 1./detector_variance.flatten()
      W = diags(w, 0)
-     import ipdb; ipdb.set_trace()
 
      # define what we're decomposing (vestigial)
      detector_measured = empirical_2d_array
 
      # ---------- decompose and time it
-     import ipdb; ipdb.set_trace()
      time_00 = time.time()
 
      time_0 = time.time()
 
      A = A_mat
-     import ipdb; ipdb.set_trace()
 
      # compute matrices/vectors
      ATW = A.T@W # A^T . W

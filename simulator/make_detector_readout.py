@@ -11,7 +11,7 @@ import pickle
 from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
-def fake_readout_1_spec(file_name_empirical_write, x_size=1000, y_size=100):
+def fake_readout_1_spec(file_name_empirical_write, angle=0, height=0.5, x_size=1000, y_size=100):
 
     stem_spec = '/Users/bandari/Documents/git.repos/rrlfe/src/model_spectra/rrmods_all/original_ascii_files'
 
@@ -32,13 +32,13 @@ def fake_readout_1_spec(file_name_empirical_write, x_size=1000, y_size=100):
 
     blank_2d = np.zeros((y_size,x_size))
     spec_perfect = blank_2d
-    spec_perfect[int(0.5*y_size),:] = np.array(spec_fake['flux_norm'])
+    spec_perfect[int(height*y_size),:] = np.array(spec_fake['flux_norm'])
 
     # convolve with Gaussian
     spec_convolved = gaussian_filter(spec_perfect, sigma=5)
 
     # small rotation
-    test_rotate = scipy.ndimage.rotate(spec_convolved, angle=1, reshape=False)
+    test_rotate = scipy.ndimage.rotate(spec_convolved, angle=angle, reshape=False)
 
     array_2d_w_spec = test_rotate
 
@@ -49,10 +49,18 @@ def fake_readout_1_spec(file_name_empirical_write, x_size=1000, y_size=100):
     pickle.dump(data_list, open_file)
     open_file.close()
 
+    # write to FITS to check
+    file_name = 'junk_fake_readout.fits'
+    hdu = fits.PrimaryHDU(array_2d_w_spec)
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(file_name, overwrite=True)
+    print("Wrote",file_name)
+    #print(wavel_array)
+
     return array_2d_w_spec
 
 
-def DEFUNCT_FOR_NOW_white_light_scan(file_name_scan_write, N_cmd, angle=1, height=0.5, x_size=1000, y_size=100):
+def DEFUNCT_FOR_NOW_white_light_scan(file_name_scan_write, N_cmd, angle=0, height=0.5, x_size=1000, y_size=100):
     '''
     angle: angle to rotate by
     height: 'height' in y on the detector the footprint lies at, before rotation (0 to 1)

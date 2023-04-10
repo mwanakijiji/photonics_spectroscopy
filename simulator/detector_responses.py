@@ -99,9 +99,6 @@ def fake_white_scan(file_name_responses_write, angle=0, height=0.5, N_cmd = 100,
         # add wavelength
         wavel_array[t] = spec_fake['wavel'].loc[t*step_wavel]
 
-    # pseudoinverse: the instrument response matrix
-    response_matrix = np.linalg.pinv(poke_matrix)
-
     # option to write to FITS
     '''
     hdu = fits.PrimaryHDU(cube_w_step_impulse)
@@ -109,29 +106,49 @@ def fake_white_scan(file_name_responses_write, angle=0, height=0.5, N_cmd = 100,
     hdul.writeto('junk_poke_white_light_no_noise_small_footprint.fits', overwrite=True)
     '''
 
-    '''
+
     # write to FITS to check
     file_name = 'junk_white_light.fits'
-    hdu = fits.PrimaryHDU(array_scan)
+    hdu = fits.PrimaryHDU(cube_w_step_impulse)
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=True)
     print("Wrote",file_name)
     #print(wavel_array)
-    '''
+
 
     test_response = cube_w_step_impulse
     test_cmds = cube_w_commands
-    response_matrix = response_matrix
+    poke_matrix = poke_matrix
 
     # pickle
-    data_list = [response_matrix, test_cmds, test_response, wavel_array]
+    data_list = [poke_matrix, test_cmds, test_response, wavel_array]
     file_name = file_name_responses_write
     open_file = open(file_name, "wb")
     pickle.dump(data_list, open_file)
     open_file.close()
 
-    return response_matrix, test_cmds, test_response
+    return poke_matrix, test_cmds, test_response, wavel_array
 
+
+def response_matrix(file_name_response_basis_read, file_name_A_matrix_write):
+
+    # retrieve instrument response matrix
+    open_file = open(file_name_response_basis_read, "rb")
+
+    # response matrix, test commands, 2D detector test response
+    poke_matrix, test_cmds, test_response, wavel_response = pickle.load(open_file)
+    open_file.close()
+
+    response_matrix = np.linalg.pinv(poke_matrix)
+
+    # pickle
+    data_list = [response_matrix]
+    file_name = file_name_A_matrix_write
+    open_file = open(file_name, "wb")
+    pickle.dump(data_list, open_file)
+    open_file.close()
+
+    return response_matrix
 
 
 '''
