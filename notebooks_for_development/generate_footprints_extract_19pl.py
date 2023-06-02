@@ -4,6 +4,7 @@
 # makes footprints for 19-port PL
 
 import glob as glob
+import pandas as pd
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -70,6 +71,12 @@ def simple_profile(array_shape, x_left, y_left, len_spec, sigma_pass=1):
 
 stem = '/Users/bandari/Documents/git.repos/photonics_spectroscopy/notebooks_for_development/data/19pl/'
 
+# fake spectra for testing
+stem_fake_spec = '/Users/bandari/Documents/git.repos/rrlfe/src/model_spectra/rrmods_all/original_ascii_files'
+spec_fake = pd.read_csv(stem_fake_spec + '/700020m30.smo', delim_whitespace=True, names=['wavel','flux','noise'])
+# normalize flux 
+spec_fake['flux_norm'] = np.divide(spec_fake['flux'],np.max(spec_fake['flux']))
+
 # read in a test frame / dark
 dark_apapane = stem + 'raw/apapanedark.fits'
 test_array = fits.open(dark_apapane)[0].data
@@ -116,7 +123,7 @@ rel_pos = {'0':(203,81),
            '18':(195,83)}
 '''
 
-# loop over set distances between fake spectra
+# grid of distances between profiles
 for prox_pixel in range(20,21):#30,2):
 
     rel_pos = {'0':(50,50),
@@ -159,9 +166,25 @@ for prox_pixel in range(20,21):#30,2):
 
     #### 19 spectra extraction
 
-    # define test data
-    D = bb_array
-    #D = bb_fake
+    # make a frame of fake spectra
+
+    # make test data
+    test_data = np.zeros(np.shape(canvas_array))
+    for key, coord_xy in rel_pos.items():
+        # inject fake spectra
+
+        # stellar spectrum (-1 is manual realignment)
+        test_data[coord_xy[1],coord_xy[0]:coord_xy[0]+100] = np.array(spec_fake['flux_norm'][0:100])
+
+        # ones
+        #test_data[coord_xy[1]-2,coord_xy[0]:coord_xy[0]+100] = np.ones((100))
+    
+    # D is detector array
+    #D = test_data
+    #D = bb_array
+    D = bb_fake
+    import ipdb; ipdb.set_trace()
+
 
     # extent of detector in x-dir
     x_extent = np.shape(test_array)[1]
@@ -196,13 +219,14 @@ for prox_pixel in range(20,21):#30,2):
         '1':np.zeros(x_extent),
         '2':np.zeros(x_extent),
         '3':np.zeros(x_extent)}
+    import ipdb; ipdb.set_trace()
 
     # loop over detector cols
     for col in range(0,x_extent): 
         
         # initialize matrix
-        c_mat = np.zeros((19,19), dtype='float')
-        b_mat = np.zeros((19), dtype='float')
+        c_mat = np.zeros((len(eta),len(eta)), dtype='float')
+        b_mat = np.zeros((len(eta)), dtype='float')
 
         # loop over pixels in col
         for pix_num in range(0,y_extent):
@@ -227,6 +251,11 @@ for prox_pixel in range(20,21):#30,2):
         for eta_num in range(0,len(eta)):
             eta[str(eta_num)][col] = eta_mat[eta_num]
 
+    # check overlap of spectra and profiles
+    plt.imshow(D+canvas_array, origin='lower')
+    plt.title('D+canvas_array')
+    plt.show()
+
     # check c_matrix
     '''
     plt.imshow(c_mat)
@@ -234,11 +263,28 @@ for prox_pixel in range(20,21):#30,2):
     plt.show()
     '''
 
-    # check cross-talk
+    # check cross-talk: offset retrievals
     for i in range(0,len(eta)):
-        
         plt.plot(np.add(eta[str(i)],0.1*i))
+    plt.title('retrievals+offsets')
+    plt.show()
 
+    # check cross-talk: compare retrievals, truth
+    plt.clf()
+    plt.plot(eta[str(i)][coord_xy[0]:coord_xy[0]+100], label='retrieved')
+    plt.plot(np.array(spec_fake['flux_norm'][0:100]), label='truth')
+    plt.legend()
+    plt.title('retrievals and truth (assumed to be stellar test spectrum)')
+    plt.show()
+
+    import ipdb; ipdb.set_trace()
+
+    # check cross-talk: residuals
+    for i in range(0,len(eta)):
+        resids = eta[str(i)][coord_xy[0]:coord_xy[0]+100] - np.array(spec_fake['flux_norm'][0:100])
+        #test_data[coord_xy[1],coord_xy[0]:coord_xy[0]+100] = np.array(spec_fake['flux_norm'][0:100])
+        plt.plot(resids)
+    plt.title('residuals')
     plt.show()
 
     ## plots
@@ -248,7 +294,7 @@ for prox_pixel in range(20,21):#30,2):
         
         plt.plot(np.add(eta[str(i)],0.1*i))
         plt.annotate(str(i), (0,0.1*i), xytext=None)
-
+    plt.title('retrieved spectra, with offsets')
     plt.savefig('junk_19specs2.png')
     plt.show()
 
@@ -256,7 +302,7 @@ for prox_pixel in range(20,21):#30,2):
     for i in range(0,len(eta)):
         
         plt.plot(eta[str(i)])
-
+    plt.title('retrieved spectra, without offsets')
     plt.show()
     '''
 
