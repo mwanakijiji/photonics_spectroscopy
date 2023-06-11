@@ -53,7 +53,7 @@ def simple_profile(array_shape, x_left, y_left, len_spec, sigma_pass=1):
     len_spec: length of spectrum (in x-dir)
     sigma_pass: sigma width of profile
     '''
-    #(x_left, len_spec, x_pass, mu_pass, sigma_pass)
+
     array_profile = np.zeros(array_shape)
 
     xgrid, ygrid = np.meshgrid(np.arange(0,np.shape(array_profile)[1]),np.arange(0,np.shape(array_profile)[0]))
@@ -71,7 +71,7 @@ def simple_profile(array_shape, x_left, y_left, len_spec, sigma_pass=1):
 
 stem = '/Users/bandari/Documents/git.repos/photonics_spectroscopy/notebooks_for_development/data/19pl/'
 
-# fake spectra for testing
+# fake stellar spectrum for testing
 stem_fake_spec = '/Users/bandari/Documents/git.repos/rrlfe/src/model_spectra/rrmods_all/original_ascii_files'
 spec_fake = pd.read_csv(stem_fake_spec + '/700020m30.smo', delim_whitespace=True, names=['wavel','flux','noise'])
 # normalize flux 
@@ -123,21 +123,24 @@ rel_pos = {'0':(203,81),
            '18':(195,83)}
 '''
 
-# grid of distances between profiles
-for prox_pixel in range(20,21):#30,2):
+# grid of distances between profiles (for measuring effect of changing distance from each other)
+for prox_pixel in range(30,31):#30,2):
 
+    '''
     rel_pos = {'0':(50,50),
             '1':(50,50+1*prox_pixel),
             '2':(50,50+2*prox_pixel),
             '3':(50,50+3*prox_pixel)}
+    '''
+    rel_pos = {'0':(50,50)}
 
     # make canvas_array
     canvas_array = np.zeros(np.shape(test_array))
     x_offset = 0 #17-181 for true positions
     y_offset = 0 #-1 for true positions
     dict_profiles = {}
-    # loop over each spectrum's starting position
-    #for coord_xy in rel_pos.values():
+
+    # loop over each spectrum's starting position and generate a profile
     for key, coord_xy in rel_pos.items():
 
         profile_this_array = simple_profile(array_shape=np.shape(test_array), 
@@ -158,7 +161,7 @@ for prox_pixel in range(20,21):#30,2):
     #plt.savefig('junk_overlap.png')
 
 
-    # fake data for testing (just simple profiles)
+    # fake data for testing (this treats the simple profiles as spectra)
     bb_fake = canvas_array
 
     #plt.imshow(bb_fake)
@@ -169,20 +172,25 @@ for prox_pixel in range(20,21):#30,2):
     # make a frame of fake spectra
 
     # make test data
-    test_data = np.zeros(np.shape(canvas_array))
+    test_spec_data = np.zeros(np.shape(canvas_array))
+
+    # loop over each spectrum starting position and inject a fake spectrum
     for key, coord_xy in rel_pos.items():
-        # inject fake spectra
 
-        # stellar spectrum (-1 is manual realignment)
-        test_data[coord_xy[1],coord_xy[0]:coord_xy[0]+100] = np.array(spec_fake['flux_norm'][0:100])
+        # stellar spectrum with some step offsets on the edges to check for offsets being introduced in the extraction
+        test_spec_data[coord_xy[1],coord_xy[0]:coord_xy[0]+100] = 0.6*np.array(spec_fake['flux_norm'][0:100])
+        test_spec_data[coord_xy[1]+1,coord_xy[0]:coord_xy[0]+100] = 0.2*np.array(spec_fake['flux_norm'][0:100])
+        test_spec_data[coord_xy[1]-1,coord_xy[0]:coord_xy[0]+100] = 0.2*np.array(spec_fake['flux_norm'][0:100])
+        #test_spec_data[coord_xy[1],coord_xy[0]:coord_xy[0]+5] = 0.5*np.array(spec_fake['flux_norm'][0:5])
+        #test_spec_data[coord_xy[1],coord_xy[0]+95:coord_xy[0]+100] = 0.5*np.array(spec_fake['flux_norm'][95:100])
 
-        # ones
+        # just ones
         #test_data[coord_xy[1]-2,coord_xy[0]:coord_xy[0]+100] = np.ones((100))
     
-    # D is detector array
-    #D = test_data
-    #D = bb_array
-    D = bb_fake
+    # define detector array D
+    D = test_spec_data # fake injected spectra
+    #D = bb_fake # simple profiles themselves are treated as spectra
+    #D = bb_array # real 19PL data
     import ipdb; ipdb.set_trace()
 
 
@@ -224,7 +232,8 @@ for prox_pixel in range(20,21):#30,2):
     # loop over detector cols
     for col in range(0,x_extent): 
         
-        # initialize matrix
+        # initialize matrices; we will solve for
+        # c_mat.T * x.T = b_mat.T to get x
         c_mat = np.zeros((len(eta),len(eta)), dtype='float')
         b_mat = np.zeros((len(eta)), dtype='float')
 
@@ -251,17 +260,18 @@ for prox_pixel in range(20,21):#30,2):
         for eta_num in range(0,len(eta)):
             eta[str(eta_num)][col] = eta_mat[eta_num]
 
+
+    # plots for a given detector array
+
     # check overlap of spectra and profiles
     plt.imshow(D+canvas_array, origin='lower')
     plt.title('D+canvas_array')
     plt.show()
 
     # check c_matrix
-    '''
-    plt.imshow(c_mat)
-    plt.colorbar()
-    plt.show()
-    '''
+    #plt.imshow(c_mat)
+    #plt.colorbar()
+    #plt.show()
 
     # check cross-talk: offset retrievals
     for i in range(0,len(eta)):
@@ -288,10 +298,8 @@ for prox_pixel in range(20,21):#30,2):
     plt.show()
 
     ## plots
-    '''
     # check fake spectra, with offsets
     for i in range(0,len(eta)):
-        
         plt.plot(np.add(eta[str(i)],0.1*i))
         plt.annotate(str(i), (0,0.1*i), xytext=None)
     plt.title('retrieved spectra, with offsets')
@@ -300,12 +308,7 @@ for prox_pixel in range(20,21):#30,2):
 
     # check fake spectra, without offsets
     for i in range(0,len(eta)):
-        
         plt.plot(eta[str(i)])
     plt.title('retrieved spectra, without offsets')
     plt.show()
-    '''
-
-
-
 
