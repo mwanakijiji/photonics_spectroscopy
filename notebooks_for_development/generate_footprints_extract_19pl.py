@@ -6,6 +6,7 @@
 import glob as glob
 import pandas as pd
 import os
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.io import fits
@@ -52,29 +53,30 @@ array_variance[array_variance == 0] = np.median(array_variance)
 # relative positions of all the outputs 
 # (can move around with a common offset in (x,y))
 
-# actual 19 PL starting positions (x,y)
-rel_pos = {'0':(203,81),
-           '1':(193,115),
-           '2':(202,113),
-           '3':(210,111),
-           '4':(187,108),
-           '5':(196,106),
-           '6':(204,105),
-           '7':(213,103),
-           '8':(181,101),
-           '9':(190,100),
-           '10':(198,98),
-           '11':(207,96),
-           '12':(215,94),
-           '13':(184,93),
-           '14':(192,91),
-           '15':(201,90),
-           '16':(209,88),
-           '17':(186,84),
-           '18':(195,83)}
+# 19 PL starting positions (x,y) from a narrowband frame, translated
+# so that x=0,y=0 corresponds to leftmost part of leftmost lenslet
+rel_pos = {'0':(39,81),
+           '1':(29,115),
+           '2':(38,113),
+           '3':(46,111),
+           '4':(23,108),
+           '5':(32,106),
+           '6':(40,105),
+           '7':(49,103),
+           '8':(17,101),
+           '9':(26,100),
+           '10':(34,98),
+           '11':(43,96),
+           '12':(51,94),
+           '13':(20,93),
+           '14':(28,91),
+           '15':(37,90),
+           '16':(45,88),
+           '17':(22,84),
+           '18':(31,83)}
 
 # dict to hold the extracted spectra, 19PL
-eta = {'0':np.zeros(x_extent),
+eta_flux = {'0':np.zeros(x_extent),
     '1':np.zeros(x_extent),
     '2':np.zeros(x_extent),
     '3':np.zeros(x_extent),
@@ -94,32 +96,104 @@ eta = {'0':np.zeros(x_extent),
     '17':np.zeros(x_extent),
     '18':np.zeros(x_extent)}
 
-# grid of distances between profiles (for measuring effect of changing distance from each other)
-#for prox_pixel in range(30,31):#30,2):
+# dicts to hold the extracted spectrum x-values on detector
+#eta_x = {}
+#eta_y = {}
+
+# dict to hold the wavel solution for each extracted spectrum
+eta_wavel = {}
+
+# will hold wavelength solutions
+wavel_soln_ports = {}
+
+# read in wavelength solution as a function of displacement from an arbitrary point
+df_wavel_soln_shift = pd.read_pickle('soln_wavelength_xy_shift_20230612.pkl') # valid in (1005, 1750)
+# subtract offset in x
+df_wavel_soln_shift['x_shift_zeroed'] = df_wavel_soln_shift['x_shift']-np.min(df_wavel_soln_shift['x_shift'])
+df_wavel_soln_shift['y_shift_zeroed'] = df_wavel_soln_shift['y_shift']-np.min(df_wavel_soln_shift['y_shift'])
+df_wavel_soln_shift = df_wavel_soln_shift.astype({'wavel':'float'}) # these are read in as strings
 
 # make canvas_array on which profiles will be placed
 canvas_array = np.zeros(np.shape(test_array))
-x_offset = 0 #17-181 for true positions
-y_offset = 0 #-1 for true positions
 dict_profiles = {}
 
-# loop over each spectrum's starting position and generate a profile
+# define detector array D and any shift in (x,y) we have to account for for placing the profiles
+if data_choice == 'empirical':
+    # real 19PL data
+    D = bb_array 
+    y_shift, x_shift = 0., 0.
+
+elif data_choice == 'empirical_translated':
+    height, width = bb_array.shape[:2]
+    T = np.float32([[1, 0, 4.3], [0, 1, 2.8]]) # third elements are sizes of translation, in pixels
+    tonight_frame = cv2.warpAffine(bb_array-dark, T, (width, height)) # dark-subtn apparently necessary to avoid numerical issues
+    D = tonight_frame
+    # find shift relative to reference frame
+    ref_frame = bb_array
+    corr = scipy.signal.correlate2d(ref_frame, tonight_frame, boundary='symm', mode='same')
+    y_abs, x_abs = np.unravel_index(np.argmax(corr), corr.shape)  # y, x: tonight's image is displaced by this much from the reference
+    y_shift, x_shift = 0.5*height-y_abs,0.5*width-x_abs
+
+elif data_choice == 'fake_injected':
+    # fake injected spectra
+    test_spec_data = fake_19pl_data.fake_injected(shape_pass = np.shape(canvas_array), rel_pos_pass = rel_pos)
+    D = test_spec_data
+    y_shift, x_shift = 0., 0.
+
+elif data_choice == 'fake_profiles':
+    # simple profiles themselves are treated as spectra
+    D = test_spec_data ## bb_fake
+    print("THIS IS ACTUALLY NOT THE FAKE_PROFILES FRAME; FIX LATER")
+    y_shift, x_shift = 0., 0.
+
+# loop over each spectrum's starting position and 
+# 1. generate a full spectrum profile
+# 2. obtain a wavelength solution
 for key, coord_xy in rel_pos.items():
 
+    # place profile, while removing translation of frame rel to a reference frame
     profile_this_array = basic_fcns.simple_profile(array_shape=np.shape(test_array), 
-                                x_left=np.add(coord_xy[0],x_offset), 
-                                y_left=np.add(coord_xy[1],y_offset), 
+                                x_left=np.add(coord_xy[0],-x_shift), 
+                                y_left=np.add(coord_xy[1],-y_shift), 
                                 len_spec=250, 
                                 sigma_pass=1)
     
     canvas_array += profile_this_array
-    
+
     # save single profiles in an array
     dict_profiles[key] = profile_this_array
 
-# check overlap is good
+    # find wavelength soln for this spectrum (note this on the frame (x,y) as read out; we account for the image translation here)
+    df_wavel_soln_shift['x_abs_spec_' + str(key)] = np.add(np.add(coord_xy[0],-x_shift),df_wavel_soln_shift['x_shift_zeroed'])
+    df_wavel_soln_shift['y_abs_spec_' + str(key)] = np.add(np.add(coord_xy[1],-y_shift),df_wavel_soln_shift['y_shift_zeroed'])
+    # solve
+    x_pix_locs = df_wavel_soln_shift['x_abs_spec_' + str(key)].values
+    y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values
+    fit_coeffs = basic_fcns.find_coeffs(
+        x_pix_locs,
+        y_pix_locs,
+        df_wavel_soln_shift['wavel'].values
+        )
+    #import ipdb; ipdb.set_trace()
+    # put x,y values of trace into dicts
+    #eta_x[str(key)] = np.arange(np.shape(canvas_array)[1])
+    ## ## PLACEHOLDER FOR NOW; CHANGE LATER TO ALLOW MULTIPLE VALUES OF Y
+    #eta_y[str(key)] = np.add(coord_xy[1],-y_shift)
+    
+    # put best-fit coeffs in dictionary
+    wavel_soln_ports[str(key)] = fit_coeffs
 
+    # best-fit wavel values (not really important here, since abcissa is just the sampling from the narrowband data, but useful for checking)
+    df_wavel_soln_shift['wavel_bestfit_' + str(key)] = basic_fcns.wavel_from_func((x_pix_locs,y_pix_locs), fit_coeffs[0][0], fit_coeffs[0][1], fit_coeffs[0][2], 
+                                     fit_coeffs[0][3], fit_coeffs[0][4])
+
+
+
+
+import ipdb; ipdb.set_trace()
+# check overlap is good
 plt.imshow(np.add((1e4)*canvas_array,bb_array), origin='lower')
+plt.title('profiles + data to check overlap')
 plt.show()
 #plt.savefig('junk_overlap.png')
 
@@ -132,41 +206,13 @@ bb_fake = canvas_array
 
 #### 19 spectra extraction
 
-# define detector array D
-if data_choice == 'empirical':
-    # real 19PL data
-    D = bb_array 
-    y_shift, x_shift = 0., 0.
-
-elif data_choice == 'empirical_translated':
-    # fake injected spectra
-    empirical_trans = fake_19pl_data.fake_injected(shape_pass = np.shape(canvas_array), rel_pos_pass = rel_pos)
-    D = empirical_trans
-    # find shift relative to reference frame
-    ref_frame = bb_array
-    tonight_frame = D
-    corr = scipy.signal.correlate2d(ref_frame, tonight_frame, boundary='symm', mode='same')
-    y_shift, x_shift = np.unravel_index(np.argmax(corr), corr.shape)  # y, x: tonight's image is displaced by this much from the reference
-
-elif data_choice == 'fake_injected':
-    # fake injected spectra
-    test_spec_data = fake_19pl_data.fake_injected(shape_pass = np.shape(canvas_array), rel_pos_pass = rel_pos)
-    D = test_spec_data
-    y_shift, x_shift = 0., 0.
-
-elif data_choice == 'fake_profiles':
-    # simple profiles themselves are treated as spectra
-    D = bb_fake
-    y_shift, x_shift = 0., 0.
-
-
 # loop over detector cols
 for col in range(0,x_extent): 
     
     # initialize matrices; we will solve for
     # c_mat.T * x.T = b_mat.T to get x
-    c_mat = np.zeros((len(eta),len(eta)), dtype='float')
-    b_mat = np.zeros((len(eta)), dtype='float')
+    c_mat = np.zeros((len(eta_flux),len(eta_flux)), dtype='float')
+    b_mat = np.zeros((len(eta_flux)), dtype='float')
 
     # loop over pixels in col
     for pix_num in range(0,y_extent):
@@ -201,16 +247,36 @@ for col in range(0,x_extent):
     
     # solve for the following transform:
     # x * c_mat = b_mat  -->  c_mat.T * x.T = b_mat.T
-    eta_mat_T, istop, itn, normr, normar, norma, conda, normx = \
+    eta_flux_mat_T, istop, itn, normr, normar, norma, conda, normx = \
             lsmr(c_mat.transpose(), b_mat.transpose())
     
-    eta_mat =  eta_mat_T.transpose()
+    eta_flux_mat =  eta_flux_mat_T.transpose()
     
-    for eta_num in range(0,len(eta)):
-        eta[str(eta_num)][col] = eta_mat[eta_num]
+    for eta_flux_num in range(0,len(eta_flux)):
+        eta_flux[str(eta_flux_num)][col] = eta_flux_mat[eta_flux_num]
 
+# apply wavelength solutions
+for key, coord_xy in rel_pos.items():
+    # note the (x,y) coordinates stretch over entire detector, not just the region sampled for the wavelength soln
+
+    x_pix_locs_whole_detector = np.arange(np.shape(canvas_array)[1]) ## ## MAKE MORE ACCURATE LATER
+    y_pix_locs_whole_detector = np.add(coord_xy[1],-y_shift)*np.ones(len(x_pix_locs_whole_detector)) ## ## MAKE MORE ACCURATE LATER
+    coeffs_this = wavel_soln_ports[str(key)]
+    eta_wavel[str(key)] = basic_fcns.wavel_from_func((x_pix_locs_whole_detector,y_pix_locs_whole_detector), 
+                                                     coeffs_this[0][0], coeffs_this[0][1], coeffs_this[0][2],
+                                                     coeffs_this[0][3], coeffs_this[0][4])
+
+'''
+plt.scatter(eta_wavel[str(key)],eta_flux[str(key)])
+plt.show()
+'''
 
 # plots for a given detector array
+import ipdb; ipdb.set_trace()
+
+'''
+plt.scatter(
+'''
 
 # check overlap of spectra and profiles
 plt.imshow(D+canvas_array, origin='lower')
@@ -223,23 +289,24 @@ plt.show()
 #plt.show()
 
 # check cross-talk: offset retrievals
-for i in range(0,len(eta)):
-    plt.plot(np.add(eta[str(i)],0.1*i))
+for i in range(0,len(eta_flux)):
+    plt.plot(np.add(eta_flux[str(i)],0.1*i))
 plt.title('retrievals+offsets')
 plt.show()
+
 
 # check cross-talk: compare retrievals, truth
 '''
 plt.clf()
-plt.plot(eta[str(i)][coord_xy[0]:coord_xy[0]+100], label='retrieved')
+plt.plot(eta_flux[str(i)][coord_xy[0]:coord_xy[0]+100], label='retrieved')
 plt.plot(np.array(spec_fake['flux_norm'][0:100]), label='truth')
 plt.legend()
 plt.title('retrievals and truth (assumed to be stellar test spectrum)')
 plt.show()
 
 # check cross-talk: residuals
-for i in range(0,len(eta)):
-    resids = eta[str(i)][coord_xy[0]:coord_xy[0]+100] - np.array(spec_fake['flux_norm'][0:100])
+for i in range(0,len(eta_flux)):
+    resids = eta_flux[str(i)][coord_xy[0]:coord_xy[0]+100] - np.array(spec_fake['flux_norm'][0:100])
     #test_data[coord_xy[1],coord_xy[0]:coord_xy[0]+100] = np.array(spec_fake['flux_norm'][0:100])
     plt.plot(resids)
 plt.title('residuals')
@@ -247,16 +314,16 @@ plt.show()
 
 ## plots
 # check fake spectra, with offsets
-for i in range(0,len(eta)):
-    plt.plot(np.add(eta[str(i)],0.1*i))
+for i in range(0,len(eta_flux)):
+    plt.plot(np.add(eta_flux[str(i)],0.1*i))
     plt.annotate(str(i), (0,0.1*i), xytext=None)
 plt.title('retrieved spectra, with offsets')
 plt.savefig('junk_19specs2.png')
 plt.show()
 
 # check fake spectra, without offsets
-for i in range(0,len(eta)):
-    plt.plot(eta[str(i)])
+for i in range(0,len(eta_flux)):
+    plt.plot(eta_flux[str(i)])
 plt.title('retrieved spectra, without offsets')
 plt.show()
 '''
