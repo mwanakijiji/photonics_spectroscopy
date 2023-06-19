@@ -21,7 +21,7 @@ import scipy
 # 'empirical_translated': empirical 19PL data, with translation (already dark-subtracted)
 # 'fake_profiles': extraction profiles themselves (for testing)
 # 'fake_injected': fake data with injected spectra
-data_choice = 'empirical_translated'
+data_choice = 'fake_profiles'
 #####
 
 stem = '/Users/bandari/Documents/git.repos/photonics_spectroscopy/notebooks_for_development/data/19pl/'
@@ -117,6 +117,16 @@ df_wavel_soln_shift = df_wavel_soln_shift.astype({'wavel':'float'}) # these are 
 canvas_array = np.zeros(np.shape(test_array))
 dict_profiles = {}
 
+'''
+# pickle something
+import pickle
+canvas_array2 = np.zeros(np.shape(test_array))
+for key, coord_xy in rel_pos.items():
+    canvas_array2 += dict_profiles[key]
+with open('junk.pkl', 'wb') as handle:
+    pickle.dump(canvas_array2, handle)
+'''
+
 # define detector array D and any shift in (x,y) we have to account for for placing the profiles
 if data_choice == 'empirical':
     # real 19PL data
@@ -142,13 +152,14 @@ elif data_choice == 'fake_injected':
 
 elif data_choice == 'fake_profiles':
     # simple profiles themselves are treated as spectra
-    D = test_spec_data ## bb_fake
-    print("THIS IS ACTUALLY NOT THE FAKE_PROFILES FRAME; FIX LATER")
+    # load a pickled frame
+    with open('19_pl_profile_frame.pkl', 'rb') as handle:
+        D = pickle.load(handle)
     y_shift, x_shift = 0., 0.
 
 # loop over each spectrum's starting position and 
 # 1. generate a full spectrum profile
-# 2. obtain a wavelength solution
+# 2. calculate a wavelength solution
 for key, coord_xy in rel_pos.items():
 
     # place profile, while removing translation of frame rel to a reference frame
@@ -156,19 +167,20 @@ for key, coord_xy in rel_pos.items():
                                 x_left=np.add(coord_xy[0],-x_shift), 
                                 y_left=np.add(coord_xy[1],-y_shift), 
                                 len_spec=250, 
-                                sigma_pass=1)
+                                sigma_pass=0.5)
     
     canvas_array += profile_this_array
 
     # save single profiles in an array
     dict_profiles[key] = profile_this_array
 
-    # find wavelength soln for this spectrum (note this on the frame (x,y) as read out; we account for the image translation here)
+    # calculate wavelength soln for this spectrum (note this on the frame (x,y) as read out; we account for the image translation here)
     df_wavel_soln_shift['x_abs_spec_' + str(key)] = np.add(np.add(coord_xy[0],-x_shift),df_wavel_soln_shift['x_shift_zeroed'])
     df_wavel_soln_shift['y_abs_spec_' + str(key)] = np.add(np.add(coord_xy[1],-y_shift),df_wavel_soln_shift['y_shift_zeroed'])
     # solve
     x_pix_locs = df_wavel_soln_shift['x_abs_spec_' + str(key)].values
     y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values
+
     fit_coeffs = basic_fcns.find_coeffs(
         x_pix_locs,
         y_pix_locs,
@@ -187,15 +199,13 @@ for key, coord_xy in rel_pos.items():
     df_wavel_soln_shift['wavel_bestfit_' + str(key)] = basic_fcns.wavel_from_func((x_pix_locs,y_pix_locs), fit_coeffs[0][0], fit_coeffs[0][1], fit_coeffs[0][2], 
                                      fit_coeffs[0][3], fit_coeffs[0][4])
 
-
-
-
-import ipdb; ipdb.set_trace()
 # check overlap is good
+'''
 plt.imshow(np.add((1e4)*canvas_array,bb_array), origin='lower')
 plt.title('profiles + data to check overlap')
 plt.show()
 #plt.savefig('junk_overlap.png')
+'''
 
 
 # fake data for testing (this treats the simple profiles as spectra)
@@ -255,6 +265,7 @@ for col in range(0,x_extent):
     for eta_flux_num in range(0,len(eta_flux)):
         eta_flux[str(eta_flux_num)][col] = eta_flux_mat[eta_flux_num]
 
+import ipdb; ipdb.set_trace()
 # apply wavelength solutions
 for key, coord_xy in rel_pos.items():
     # note the (x,y) coordinates stretch over entire detector, not just the region sampled for the wavelength soln
@@ -267,7 +278,8 @@ for key, coord_xy in rel_pos.items():
                                                      coeffs_this[0][3], coeffs_this[0][4])
 
 '''
-plt.scatter(eta_wavel[str(key)],eta_flux[str(key)])
+for key, coord_xy in rel_pos.items():
+    plt.plot(eta_wavel[str(key)],eta_flux[str(key)]+2000*float(key))
 plt.show()
 '''
 
@@ -279,9 +291,11 @@ plt.scatter(
 '''
 
 # check overlap of spectra and profiles
+
 plt.imshow(D+canvas_array, origin='lower')
 plt.title('D+canvas_array')
 plt.show()
+
 
 # check c_matrix
 #plt.imshow(c_mat)
@@ -290,7 +304,7 @@ plt.show()
 
 # check cross-talk: offset retrievals
 for i in range(0,len(eta_flux)):
-    plt.plot(np.add(eta_flux[str(i)],0.1*i))
+    plt.plot(eta_wavel[str(i)], np.add(eta_flux[str(i)],0.1*i))
 plt.title('retrievals+offsets')
 plt.show()
 
