@@ -153,7 +153,11 @@ elif data_choice == 'fake_injected':
 elif data_choice == 'fake_profiles':
     # simple profiles themselves are treated as spectra
     # load a pickled frame
-    with open('19_pl_profile_frame.pkl', 'rb') as handle:
+    #with open('fake_simple_profiles_width0pt25.pkl', 'rb') as handle: # don't forget to set sigma_pass in basic_fcns.simple_profile()
+    #with open('fake_simple_profiles_width0pt5.pkl', 'rb') as handle:
+    #with open('fake_simple_profiles_width1pt0.pkl', 'rb') as handle:
+    #with open('fake_simple_profiles_width2pt0.pkl', 'rb') as handle:
+    with open('fake_simple_profiles_width3pt0.pkl', 'rb') as handle:
         D = pickle.load(handle)
     y_shift, x_shift = 0., 0.
 
@@ -167,7 +171,7 @@ for key, coord_xy in rel_pos.items():
                                 x_left=np.add(coord_xy[0],-x_shift), 
                                 y_left=np.add(coord_xy[1],-y_shift), 
                                 len_spec=250, 
-                                sigma_pass=0.5)
+                                sigma_pass=3.)
     
     canvas_array += profile_this_array
 
@@ -206,7 +210,6 @@ plt.title('profiles + data to check overlap')
 plt.show()
 #plt.savefig('junk_overlap.png')
 '''
-
 
 # fake data for testing (this treats the simple profiles as spectra)
 bb_fake = canvas_array
@@ -265,7 +268,7 @@ for col in range(0,x_extent):
     for eta_flux_num in range(0,len(eta_flux)):
         eta_flux[str(eta_flux_num)][col] = eta_flux_mat[eta_flux_num]
 
-import ipdb; ipdb.set_trace()
+
 # apply wavelength solutions
 for key, coord_xy in rel_pos.items():
     # note the (x,y) coordinates stretch over entire detector, not just the region sampled for the wavelength soln
@@ -284,7 +287,7 @@ plt.show()
 '''
 
 # plots for a given detector array
-import ipdb; ipdb.set_trace()
+
 
 '''
 plt.scatter(
@@ -302,11 +305,46 @@ plt.show()
 #plt.colorbar()
 #plt.show()
 
+
+
+
+x_talk_mean = {}
+x_talk_median = {}
+x_talk_stdev = {}
+# tests on the extracted spectra
+for i in range(0,len(eta_flux)):
+    # indices we will use to quantify cross-talk
+    idx_xtalk = np.logical_and(eta_wavel[str(i)]>1150,eta_wavel[str(i)]<1400)
+
+    x_talk_mean[str(i)] = np.mean(eta_flux[str(i)][idx_xtalk])
+    x_talk_median[str(i)] = np.median(eta_flux[str(i)][idx_xtalk])
+    x_talk_stdev[str(i)] = np.std(eta_flux[str(i)][idx_xtalk])
+
+
+# xtalk plots
+for i in range(0,len(eta_flux)):
+    plt.scatter(i,x_talk_mean[str(i)])
+plt.title('mean')
+plt.savefig('junk_mean.png')
+plt.clf()
+for i in range(0,len(eta_flux)):
+    plt.scatter(i,x_talk_median[str(i)])
+plt.title('median')
+plt.savefig('junk_median.png')
+plt.clf()
+for i in range(0,len(eta_flux)):
+    plt.scatter(i,x_talk_stdev[str(i)])
+plt.title('stdev')
+plt.savefig('junk_stdev.png')
+plt.clf()
+
+
 # check cross-talk: offset retrievals
 for i in range(0,len(eta_flux)):
     plt.plot(eta_wavel[str(i)], np.add(eta_flux[str(i)],0.1*i))
+    plt.annotate(str(i), (1100,1+0.1*i), xytext=None)
 plt.title('retrievals+offsets')
-plt.show()
+plt.savefig('junk_offset_retrievals.png')
 
 
 # check cross-talk: compare retrievals, truth
