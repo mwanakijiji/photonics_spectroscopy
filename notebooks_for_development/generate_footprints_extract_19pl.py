@@ -21,7 +21,9 @@ import scipy
 # 'empirical_translated': empirical 19PL data, with translation (already dark-subtracted)
 # 'fake_profiles': extraction profiles themselves (for testing)
 # 'fake_injected': fake data with injected spectra
-data_choice = 'fake_profiles'
+data_choice = 'fake_injected'
+
+sigma_all = 1 # sigma width of extraction profiles (and fake spectra, if applicable)
 #####
 
 stem = '/Users/bandari/Documents/git.repos/photonics_spectroscopy/notebooks_for_development/data/19pl/'
@@ -35,10 +37,12 @@ x_extent = np.shape(test_array)[1]
 y_extent = np.shape(test_array)[0]
 
 # read in a broadband frame (already dark-subtracted)
+# (this will only get used if applicable)
 bb_frame_19pl = stem + 'dark_subted/19PL_bb_irnd1.0_optnd3.0.fits'
 bb_array = fits.open(bb_frame_19pl)[0].data
 
 # read in a translated broadband frame (already dark-subtracted)
+# (this will only get used if applicable)
 bb_frame_19pl_translated = stem + 'dark_subted/19PL_bb_irnd1.0_optnd3.0_translated.fits'
 bb_array_translated = fits.open(bb_frame_19pl)[0].data
 
@@ -108,6 +112,13 @@ wavel_soln_ports = {}
 
 # read in wavelength solution as a function of displacement from an arbitrary point
 df_wavel_soln_shift = pd.read_pickle('soln_wavelength_xy_shift_20230612.pkl') # valid in (1005, 1750)
+# sort wavelengths
+df_wavel_soln_shift.sort_values(by='wavel', inplace=True)
+# OVERWRITE ABOVE and make a cleaner wavelength soln made to imitate the one I found
+m_slope = (3.9-0)/(163+143)
+b_int = 143*m_slope
+df_wavel_soln_shift['y_shift'] = df_wavel_soln_shift['x_shift']*m_slope + b_int
+
 # subtract offset in x
 df_wavel_soln_shift['x_shift_zeroed'] = df_wavel_soln_shift['x_shift']-np.min(df_wavel_soln_shift['x_shift'])
 df_wavel_soln_shift['y_shift_zeroed'] = df_wavel_soln_shift['y_shift']-np.min(df_wavel_soln_shift['y_shift'])
@@ -146,7 +157,7 @@ elif data_choice == 'empirical_translated':
 
 elif data_choice == 'fake_injected':
     # fake injected spectra
-    test_spec_data = fake_19pl_data.fake_injected(shape_pass = np.shape(canvas_array), rel_pos_pass = rel_pos)
+    test_spec_data = fake_19pl_data.fake_injected(shape_pass = np.shape(canvas_array), rel_pos_pass = rel_pos, sigma = sigma_all)
     D = test_spec_data
     y_shift, x_shift = 0., 0.
 
@@ -161,6 +172,8 @@ elif data_choice == 'fake_profiles':
         D = pickle.load(handle)
     y_shift, x_shift = 0., 0.
 
+import ipdb; ipdb.set_trace()
+
 # loop over each spectrum's starting position and 
 # 1. generate a full spectrum profile
 # 2. calculate a wavelength solution
@@ -171,7 +184,7 @@ for key, coord_xy in rel_pos.items():
                                 x_left=np.add(coord_xy[0],-x_shift), 
                                 y_left=np.add(coord_xy[1],-y_shift), 
                                 len_spec=250, 
-                                sigma_pass=3.)
+                                sigma_pass=sigma_all)
     
     canvas_array += profile_this_array
 
