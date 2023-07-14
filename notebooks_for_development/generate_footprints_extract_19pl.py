@@ -23,6 +23,7 @@ import scipy
 # 'fake_injected': fake data with injected spectra
 data_choice = 'fake_injected'
 
+len_spec = 250 # length of spectra and their profiles, in pixels (x only for now) ## ## expand to enable arbitrary shapes
 sigma_all = 1 # sigma width of extraction profiles (and fake spectra, if applicable)
 #####
 
@@ -59,6 +60,7 @@ array_variance[array_variance == 0] = np.median(array_variance)
 
 # 19 PL starting positions (x,y) from a narrowband frame, translated
 # so that x=0,y=0 corresponds to leftmost part of leftmost lenslet
+# (note these are RELATIVE (x,y) positions; the important thing is that they define the starting positions of the spectra)
 rel_pos = {'0':(39,81),
            '1':(29,115),
            '2':(38,113),
@@ -107,14 +109,15 @@ eta_flux = {'0':np.zeros(x_extent),
 # dict to hold the wavel solution for each extracted spectrum
 eta_wavel = {}
 
-# will hold wavelength solutions
+# will hold wavelength solutions, one for each of the 19 ports
 wavel_soln_ports = {}
 
 # read in wavelength solution as a function of displacement from an arbitrary point
 df_wavel_soln_shift = pd.read_pickle('soln_wavelength_xy_shift_20230612.pkl') # valid in (1005, 1750)
+import ipdb; ipdb.set_trace()
 # sort wavelengths
 df_wavel_soln_shift.sort_values(by='wavel', inplace=True)
-# OVERWRITE ABOVE and make a cleaner wavelength soln made to imitate the one I found
+## ## OVERWRITE ABOVE and make a cleaner wavelength soln made to imitate the one I found
 m_slope = (3.9-0)/(163+143)
 b_int = 143*m_slope
 df_wavel_soln_shift['y_shift'] = df_wavel_soln_shift['x_shift']*m_slope + b_int
@@ -179,31 +182,62 @@ import ipdb; ipdb.set_trace()
 # 2. calculate a wavelength solution
 for key, coord_xy in rel_pos.items():
 
-    # place profile, while removing translation of frame rel to a reference frame
+    spec_x_left = np.add(coord_xy[0],-x_shift)
+    spec_y_left = np.add(coord_xy[1],-y_shift)
+
+    # place profile on detector, while removing translation of frame relative to a reference frame
     profile_this_array = basic_fcns.simple_profile(array_shape=np.shape(test_array), 
-                                x_left=np.add(coord_xy[0],-x_shift), 
-                                y_left=np.add(coord_xy[1],-y_shift), 
-                                len_spec=250, 
+                                x_left=spec_x_left, 
+                                y_left=spec_y_left, 
+                                len_spec=len_spec, 
                                 sigma_pass=sigma_all)
     
+    # accumulate these onto an array that will let us look at the total footprint
     canvas_array += profile_this_array
 
     # save single profiles in an array
     dict_profiles[key] = profile_this_array
 
-    # calculate wavelength soln for this spectrum (note this on the frame (x,y) as read out; we account for the image translation here)
+    ## calculate wavelength soln for this one spectrum 
+
+    # note we account for the image translation here by
+    # 1. adding values x_shift, y_shift to the spectrum starting points, and
+    # 2. adding those resulting coordinates to the zeroed x,y of the wavelength soln footprint (i.e., the starting (x,y)=(0,0))
+
+    # adjust (x,y) appropriately
+
+    '''
     df_wavel_soln_shift['x_abs_spec_' + str(key)] = np.add(np.add(coord_xy[0],-x_shift),df_wavel_soln_shift['x_shift_zeroed'])
     df_wavel_soln_shift['y_abs_spec_' + str(key)] = np.add(np.add(coord_xy[1],-y_shift),df_wavel_soln_shift['y_shift_zeroed'])
-    # solve
-    x_pix_locs = df_wavel_soln_shift['x_abs_spec_' + str(key)].values
-    y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values
 
+    # values only
+    x_pix_locs = df_wavel_soln_shift['x_abs_spec_' + str(key)].values
+
+    # test vals here for testing; just single value
+    #y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values[0]*np.ones(len( df_wavel_soln_shift['y_abs_spec_' + str(key)])) # one val only
+    
+    y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values
+    '''
+
+    x_pix_locs = df_wavel_soln_shift['x_shift_zeroed']
+    y_pix_locs = df_wavel_soln_shift['y_shift_zeroed']
+
+    # solve
+    import ipdb; ipdb.set_trace()
+    ## ## THIS SHOULD BE DONE AT THE BEGINNING SOMEHOW, TO AVOID RE-DOING IT EACH TIME
+
+    # fit coefficients based on (x,y) coords of given spectrum and the set of basis wavelengths
     fit_coeffs = basic_fcns.find_coeffs(
         x_pix_locs,
         y_pix_locs,
         df_wavel_soln_shift['wavel'].values
         )
-    #import ipdb; ipdb.set_trace()
+    
+    #plt.clf()
+
+    #plt.plot(x_pix_locs,df_wavel_soln_shift['wavel'].values)
+    #plt.show()
+
     # put x,y values of trace into dicts
     #eta_x[str(key)] = np.arange(np.shape(canvas_array)[1])
     ## ## PLACEHOLDER FOR NOW; CHANGE LATER TO ALLOW MULTIPLE VALUES OF Y
@@ -213,8 +247,14 @@ for key, coord_xy in rel_pos.items():
     wavel_soln_ports[str(key)] = fit_coeffs
 
     # best-fit wavel values (not really important here, since abcissa is just the sampling from the narrowband data, but useful for checking)
-    df_wavel_soln_shift['wavel_bestfit_' + str(key)] = basic_fcns.wavel_from_func((x_pix_locs,y_pix_locs), fit_coeffs[0][0], fit_coeffs[0][1], fit_coeffs[0][2], 
-                                     fit_coeffs[0][3], fit_coeffs[0][4])
+    df_wavel_soln_shift['wavel_bestfit_' + str(key)] = basic_fcns.wavel_from_func((x_pix_locs,y_pix_locs), 
+                                                                                  fit_coeffs[0], 
+                                                                                  fit_coeffs[1], 
+                                                                                  fit_coeffs[2], 
+                                                                                  fit_coeffs[3], 
+                                                                                  fit_coeffs[4])
+    #plt.plot(x_pix_locs,df_wavel_soln_shift['wavel'].values)
+
 
 # check overlap is good
 '''
@@ -281,18 +321,33 @@ for col in range(0,x_extent):
     for eta_flux_num in range(0,len(eta_flux)):
         eta_flux[str(eta_flux_num)][col] = eta_flux_mat[eta_flux_num]
 
-
+import ipdb; ipdb.set_trace()
 # apply wavelength solutions
 for key, coord_xy in rel_pos.items():
     # note the (x,y) coordinates stretch over entire detector, not just the region sampled for the wavelength soln
 
+    #import ipdb; ipdb.set_trace()
+
+    # indices of pixels across entire detector, in x
     x_pix_locs_whole_detector = np.arange(np.shape(canvas_array)[1]) ## ## MAKE MORE ACCURATE LATER
+    ## ?
     y_pix_locs_whole_detector = np.add(coord_xy[1],-y_shift)*np.ones(len(x_pix_locs_whole_detector)) ## ## MAKE MORE ACCURATE LATER
     coeffs_this = wavel_soln_ports[str(key)]
-    eta_wavel[str(key)] = basic_fcns.wavel_from_func((x_pix_locs_whole_detector,y_pix_locs_whole_detector), 
-                                                     coeffs_this[0][0], coeffs_this[0][1], coeffs_this[0][2],
-                                                     coeffs_this[0][3], coeffs_this[0][4])
+    import ipdb; ipdb.set_trace()
 
+    ##
+    eta_flux[str(key)] 
+    ##
+
+    x_pix_whole_spectrum = np.arange(0, len_spec, 1) # rel_pos[str(key)][0],
+    y_pix_whole_spectrum = np.arange(0, len_spec, 1)
+
+    # return wavelengths from pre-existing wavelength soln
+    ## ## PROBLEN LIES AT THIS STEP; SOME SOLUTIONS GO NEGATIVE
+    eta_wavel[str(key)] = basic_fcns.wavel_from_func((x_pix_locs_whole_detector,y_pix_locs_whole_detector), 
+                                                     coeffs_this[0], coeffs_this[1], coeffs_this[2],
+                                                     coeffs_this[3], coeffs_this[4])
+import ipdb; ipdb.set_trace()
 '''
 for key, coord_xy in rel_pos.items():
     plt.plot(eta_wavel[str(key)],eta_flux[str(key)]+2000*float(key))
@@ -318,6 +373,10 @@ plt.show()
 #plt.colorbar()
 #plt.show()
 
+# overplot wavelength solns
+for i in range(0,len(eta_flux)):
+    plt.plot(eta_wavel[str(i)])
+plt.show()
 
 
 
@@ -357,6 +416,7 @@ for i in range(0,len(eta_flux)):
     plt.plot(eta_wavel[str(i)], np.add(eta_flux[str(i)],0.1*i))
     plt.annotate(str(i), (1100,1+0.1*i), xytext=None)
 plt.title('retrievals+offsets')
+import ipdb; ipdb.set_trace()
 plt.savefig('junk_offset_retrievals.png')
 
 
