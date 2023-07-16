@@ -6,16 +6,31 @@ from astropy.io import fits
 from scipy.optimize import curve_fit
 from scipy.sparse.linalg import lsmr
 
-def apply_wavel_solns(x_shift, y_shift, len_spec, rel_pos, canvas_array, wavel_soln_ports):
+def apply_wavel_solns(x_shift, y_shift, len_spec, rel_pos, canvas_array, wavel_soln_ports, eta_flux, wavel_solns_full):
 
     # dict to hold the wavelength solution for each extracted spectrum
-    eta_wavel = {}
+    eta_all = {}
+
+    import ipdb; ipdb.set_trace()
 
     # apply wavelength solutions
     for key, coord_xy in rel_pos.items():
         # note the (x,y) coordinates stretch over entire detector, not just the region sampled for the wavelength soln
 
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
+        eta_all[str(key)] = pd.DataFrame()
+
+        # full wavel soln is zeroed
+        # eta_flux is NOT zeroed
+        eta_all[str(key)]['x0'] = wavel_solns_full[str(key)]['x0'] # zeroed
+        eta_all[str(key)]['y0'] = wavel_solns_full[str(key)]['y0'] # zeroed
+        eta_all[str(key)]['x'] = wavel_solns_full[str(key)]['x0'] + rel_pos[str(key)][0] # in detector coords
+        eta_all[str(key)]['y'] = wavel_solns_full[str(key)]['y0'] + rel_pos[str(key)][1]# in detector coords
+        eta_all[str(key)]['wavel'] = wavel_solns_full[str(key)]['wavel']
+        eta_all[str(key)]['flux'] = eta_flux[str(key)]
+
+
+        import ipdb; ipdb.set_trace()
 
         # indices of pixels across entire detector, in x
         x_pix_locs_whole_detector = np.arange(np.shape(canvas_array)[1]) ## ## MAKE MORE ACCURATE LATER
@@ -26,6 +41,7 @@ def apply_wavel_solns(x_shift, y_shift, len_spec, rel_pos, canvas_array, wavel_s
         x_pix_whole_spectrum = np.arange(0, len_spec, 1) # rel_pos[str(key)][0],
         y_pix_whole_spectrum = np.arange(0, len_spec, 1)
 
+        import ipdb; ipdb.set_trace()
         # return wavelengths from pre-existing wavelength soln
         ## ## PROBLEN LIES AT THIS STEP; SOME SOLUTIONS GO NEGATIVE
         eta_wavel[str(key)] = wavel_from_func((x_pix_locs_whole_detector,y_pix_locs_whole_detector), 
@@ -88,9 +104,51 @@ def extract_19pl(x_extent, y_extent, eta_flux, dict_profiles, D, array_variance)
 
     return eta_flux
 
-def gen_spec_profile_and_wavel(rel_pos, x_shift, y_shift, canvas_array, test_array, df_wavel_soln_shift, wavel_soln_ports, dict_profiles, len_spec, sigma):
+
+def get_full_wavel_solns(x_extent, y_extent, rel_pos, df_wavel_soln_shift):
+
+    # dict to contain a DataFrame for each spectrum wavelength solution (across all pixels of the array), each of which contains
+    # x0: x values (with offset subtracted)
+    # y0: y "  "  "
+    # lambda: interpolated wavelength
+    wavel_solns_full = {}
+
+    # loop over each spectrum's starting position and 
+    # 1. generate a full spectrum profile
+    # 2. calculate a wavelength solution
+    for key, coord_xy in rel_pos.items():
+
+        wavel_solns_full[str(key)] = pd.DataFrame()
+
+        x_pix_locs = df_wavel_soln_shift['x_shift_zeroed']
+        y_pix_locs = df_wavel_soln_shift['y_shift_zeroed']
+
+        # fit coefficients based on (x,y) coords of given spectrum and the set of basis wavelengths
+        fit_coeffs = find_coeffs(
+            x_pix_locs,
+            y_pix_locs,
+            df_wavel_soln_shift['wavel'].values
+            )
+        
+        import ipdb; ipdb.set_trace()
+
+        #wavel_solns_full[str(key)]['x'] = 
+
+        wavel_solns_full[str(key)]['x0'] = x_pix_locs
+        wavel_solns_full[str(key)]['y0'] = y_pix_locs
+        wavel_solns_full[str(key)]['wavel'] = wavel_from_func((x_pix_locs,y_pix_locs), 
+                                                        fit_coeffs[0], fit_coeffs[1], fit_coeffs[2],
+                                                        fit_coeffs[3], fit_coeffs[4])
+        # sort stuff
+        wavel_solns_full[str(key)] = wavel_solns_full[str(key)].sort_values(by='x0', ignore_index=True)
+
+    return wavel_solns_full
+
+
+def gen_spec_profile(rel_pos, x_shift, y_shift, canvas_array, test_array, df_wavel_soln_shift, len_spec, sigma):
 
     sigma_all = sigma
+    dict_profiles = {} # dict which will hold all profiles
 
     # loop over each spectrum's starting position and 
     # 1. generate a full spectrum profile
@@ -112,63 +170,8 @@ def gen_spec_profile_and_wavel(rel_pos, x_shift, y_shift, canvas_array, test_arr
 
         # save single profiles in an array
         dict_profiles[key] = profile_this_array
-
-        ## calculate wavelength soln for this one spectrum 
-
-        # note we account for the image translation here by
-        # 1. adding values x_shift, y_shift to the spectrum starting points, and
-        # 2. adding those resulting coordinates to the zeroed x,y of the wavelength soln footprint (i.e., the starting (x,y)=(0,0))
-
-        # adjust (x,y) appropriately
-
-        '''
-        df_wavel_soln_shift['x_abs_spec_' + str(key)] = np.add(np.add(coord_xy[0],-x_shift),df_wavel_soln_shift['x_shift_zeroed'])
-        df_wavel_soln_shift['y_abs_spec_' + str(key)] = np.add(np.add(coord_xy[1],-y_shift),df_wavel_soln_shift['y_shift_zeroed'])
-
-        # values only
-        x_pix_locs = df_wavel_soln_shift['x_abs_spec_' + str(key)].values
-
-        # test vals here for testing; just single value
-        #y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values[0]*np.ones(len( df_wavel_soln_shift['y_abs_spec_' + str(key)])) # one val only
-        
-        y_pix_locs = df_wavel_soln_shift['y_abs_spec_' + str(key)].values
-        '''
-
-        x_pix_locs = df_wavel_soln_shift['x_shift_zeroed']
-        y_pix_locs = df_wavel_soln_shift['y_shift_zeroed']
-
-        # solve
-        ## ## THIS SHOULD BE DONE AT THE BEGINNING SOMEHOW, TO AVOID RE-DOING IT EACH TIME
-
-        # fit coefficients based on (x,y) coords of given spectrum and the set of basis wavelengths
-        fit_coeffs = find_coeffs(
-            x_pix_locs,
-            y_pix_locs,
-            df_wavel_soln_shift['wavel'].values
-            )
-        
-        #plt.clf()
-
-        #plt.plot(x_pix_locs,df_wavel_soln_shift['wavel'].values)
-        #plt.show()
-
-        # put x,y values of trace into dicts
-        #eta_x[str(key)] = np.arange(np.shape(canvas_array)[1])
-        ## ## PLACEHOLDER FOR NOW; CHANGE LATER TO ALLOW MULTIPLE VALUES OF Y
-        #eta_y[str(key)] = np.add(coord_xy[1],-y_shift)
-        
-        # put best-fit coeffs in dictionary
-        wavel_soln_ports[str(key)] = fit_coeffs
-
-        # best-fit wavel values (not really important here, since abcissa is just the sampling from the narrowband data, but useful for checking)
-        df_wavel_soln_shift['wavel_bestfit_' + str(key)] = wavel_from_func((x_pix_locs,y_pix_locs), 
-                                                                                    fit_coeffs[0], 
-                                                                                    fit_coeffs[1], 
-                                                                                    fit_coeffs[2], 
-                                                                                    fit_coeffs[3], 
-                                                                                    fit_coeffs[4])
     
-    return df_wavel_soln_shift
+    return dict_profiles
 
 
 def get_detector_array_and_shift(data_choice, bb_array, dark, canvas_array, rel_pos, sigma):
@@ -297,8 +300,8 @@ def infostack(x_extent, y_extent):
     return rel_pos, eta_flux, wavel_soln_ports
 
 
-# return wavelength solution: as measured empirically, and the best smooth fit to that data
-def wavel_soln():
+# return wavelength solutions: as measured empirically, and the best smooth fit to that data
+def wavel_solns_empirical(rel_pos):
     '''
     RETURNS: 
     df_wavel_soln_shift: DataFrame with keys
@@ -309,22 +312,36 @@ def wavel_soln():
         wavel:          wavelength (empirical sampling)
     '''
 
+    import ipdb; ipdb.set_trace()
     # read in empirical wavelength solution as a function of displacement from an arbitrary point
-    df_wavel_soln_shift = pd.read_pickle('soln_wavelength_xy_shift_20230612.pkl') # valid in (1005, 1750)
+    df_wavel_soln_single = pd.read_pickle('soln_wavelength_xy_shift_20230612.pkl') # valid in (1005, 1750)
 
     # sort wavelengths
-    df_wavel_soln_shift.sort_values(by='wavel', inplace=True)
+    df_wavel_soln_single.sort_values(by='wavel', inplace=True)
+
     ## ## OVERWRITE ABOVE and make a cleaner wavelength soln made to imitate the one I found
+    df_wavel_solns_empirical = {} # dict to hold DataFrames
     m_slope = (3.9-0)/(163+143)
     b_int = 143*m_slope
-    df_wavel_soln_shift['y_shift'] = df_wavel_soln_shift['x_shift']*m_slope + b_int
 
-    # subtract offset in x
-    df_wavel_soln_shift['x_shift_zeroed'] = df_wavel_soln_shift['x_shift']-np.min(df_wavel_soln_shift['x_shift'])
-    df_wavel_soln_shift['y_shift_zeroed'] = df_wavel_soln_shift['y_shift']-np.min(df_wavel_soln_shift['y_shift'])
-    df_wavel_soln_shift = df_wavel_soln_shift.astype({'wavel':'float'}) # these are read in as strings
+    for key, coord_xy in rel_pos.items():
 
-    return df_wavel_soln_shift
+        df_wavel_solns_empirical[str(key)] = pd.DataFrame()
+
+        df_wavel_solns_empirical[str(key)]['wavel'] = df_wavel_soln_single['wavel']
+
+        # x and y values of empirical measurements
+        df_wavel_solns_empirical[str(key)]['x_shift'] = df_wavel_soln_single['x_shift'] + coord_xy[0]
+        df_wavel_solns_empirical[str(key)]['y_shift'] = df_wavel_solns_empirical[str(key)]['x_shift']*m_slope + b_int  + coord_xy[1]
+
+        # subtract offsets 
+        df_wavel_solns_empirical[str(key)]['x_shift_zeroed'] = df_wavel_solns_empirical[str(key)]['x_shift'] - np.min(df_wavel_solns_empirical[str(key)]['x_shift'])
+        df_wavel_solns_empirical[str(key)]['y_shift_zeroed'] = df_wavel_solns_empirical[str(key)]['y_shift'] - np.min(df_wavel_solns_empirical[str(key)]['y_shift'])
+
+        # sort
+        df_wavel_solns_empirical[str(key)] = df_wavel_solns_empirical[str(key)].sort_values(by='wavel', ignore_index=True)
+
+    return df_wavel_solns_empirical
 
 
 # return wavelength based on a pre-existing polynomial wavelength solution
@@ -333,7 +350,7 @@ def wavel_from_func(X, a, b, c, d, f):
     X: (x,y) array
     a,b,c,d,f: coefficients
     '''
-    
+
     x_pass, y_pass = X
     
     return a*x_pass + b*y_pass + c*x_pass*y_pass + d*np.power(x_pass,2.) + f*np.power(y_pass,2.)
