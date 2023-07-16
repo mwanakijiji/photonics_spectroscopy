@@ -44,8 +44,8 @@ canvas_array = np.zeros(np.shape(test_array))
 #   wavel_soln_ports: dict to hold wavelength solutions for each port
 rel_pos, eta_flux, wavel_soln_ports = basic_fcns.infostack(x_extent, y_extent)
 
-# empirical wavelength soln for each spectrum, based on a single series of narrowband images
-df_wavel_solns_shift = basic_fcns.wavel_solns_empirical(rel_pos)
+# empirical wavelength basis set for each spectrum, based on a single series of narrowband images
+df_wavel_empirical_zeroed = basic_fcns.wavel_solns_empirical(rel_pos)
 
 # degree of (x,y) translation, and detector readout D
 x_shift, y_shift, D = basic_fcns.get_detector_array_and_shift(data_choice, 
@@ -55,7 +55,7 @@ x_shift, y_shift, D = basic_fcns.get_detector_array_and_shift(data_choice,
                                                               rel_pos, 
                                                               sigma=sigma_all)
 
-import ipdb; ipdb.set_trace()
+
 # generate wavelength solutions (for all pixels in spectra, not just from narrowband footprints)
 # INPUTS: 
 # 1.    relative positions of each spectrum
@@ -63,15 +63,15 @@ import ipdb; ipdb.set_trace()
 # ---> polynomial fit to basis sets ---> 
 # OUTPUTS:
 # 1.    full but simple x0,y0,lambda array
-wavel_solns_full = basic_fcns.get_full_wavel_solns(x_extent, y_extent, rel_pos, df_wavel_solns_shift)
-import ipdb; ipdb.set_trace()
+wavel_solns_full = basic_fcns.get_full_wavel_solns(x_extent, y_extent, len_spec, rel_pos, df_wavel_empirical_zeroed)
+
 # return 2D profiles of spectra
 dict_profiles = basic_fcns.gen_spec_profile(rel_pos, 
                                             x_shift, 
                                             y_shift, 
                                             canvas_array, 
                                             test_array, 
-                                            df_wavel_solns_shift, 
+                                            df_wavel_empirical_zeroed, 
                                             len_spec, 
                                             sigma_all)
 
@@ -101,7 +101,7 @@ import ipdb; ipdb.set_trace()
 '''
 # check extracted flux
 for key, coord_xy in rel_pos.items():
-    plt.plot(eta_wavel[str(key)],eta_flux[str(key)]+2000*float(key))
+    plt.plot(eta_all[str(key)]['wavel'],eta_all[str(key)]['flux']+0.1*float(key))
 plt.show()
 '''
 
